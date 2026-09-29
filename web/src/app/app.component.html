@@ -1,0 +1,71 @@
+<main class="page">
+  <header class="topbar shell">
+    <div>
+      <span class="eyebrow">LOGISTICS PORTFOLIO / APP 01</span>
+      <h1>Freight Ops</h1>
+      <p>Customer intelligence and operating visibility built around explicit, auditable priorities.</p>
+    </div>
+    <span class="pill">.NET 10 + Angular 22</span>
+  </header>
+
+  @if (dashboard(); as d) {
+    <section class="stats shell" aria-label="Operational metrics">
+      <article><span>Active customers</span><strong>{{ d.activeCustomers }}</strong></article>
+      <article><span>Monthly loads</span><strong>{{ d.monthlyLoads }}</strong></article>
+      <article><span>Monthly gross margin</span><strong>{{ money(d.grossMargin) }}</strong></article>
+      <article><span>Follow-ups due</span><strong>{{ d.followUpsDue }}</strong></article>
+    </section>
+
+    <section class="grid shell">
+      <article class="panel span-2">
+        <div class="panel-head">
+          <div><span class="eyebrow">ACCOUNT WORK QUEUE</span><h2>Top opportunities</h2></div>
+          <span class="subtle">Explainable score, not AI theater</span>
+        </div>
+        <div class="opportunities">
+          @for (item of d.topOpportunities; track item.customerId) {
+            <div class="opportunity">
+              <div class="score">{{ item.priorityScore }}</div>
+              <div class="opportunity-copy">
+                <strong>{{ item.customerName }}</strong>
+                <span>{{ item.primaryLane }}</span>
+                <p>{{ item.whyNow }}</p>
+                <small>{{ item.recommendedAction }}</small>
+              </div>
+            </div>
+          }
+        </div>
+      </article>
+
+      <article class="panel integration">
+        <span class="eyebrow">THIRD-PARTY INTEGRATION</span>
+        <h2>{{ externalLabel() }}</h2>
+        <p>The browser calls this portfolio API only. OAuth credentials and vendor bearer tokens never leave the server.</p>
+        <button type="button" (click)="refreshLoads()">Refresh loads</button>
+        @if (loads()?.degraded) { <div class="warning">{{ loads()?.degradedReason }}</div> }
+      </article>
+    </section>
+  }
+
+  @if (loads(); as result) {
+    <section class="shell panel loads-panel">
+      <div class="panel-head">
+        <div><span class="eyebrow">LOAD VISIBILITY</span><h2>Current freight</h2></div>
+        <span class="subtle">{{ result.provider }}</span>
+      </div>
+      <div class="load-grid">
+        @for (load of result.loads; track load.loadNumber) {
+          <article class="load-card">
+            <div class="load-title"><strong>{{ load.loadNumber }}</strong><span>{{ load.status }}</span></div>
+            <h3>{{ load.customerName }}</h3>
+            <dl>
+              <div><dt>Pickup</dt><dd>{{ date(load.scheduledPickupAt) }}</dd></div>
+              <div><dt>Delivery</dt><dd>{{ date(load.scheduledDeliveryAt) }}</dd></div>
+              <div><dt>Equipment</dt><dd>{{ load.requiredEquipment.join(', ') || 'Not supplied' }}</dd></div>
+            </dl>
+          </article>
+        }
+      </div>
+    </section>
+  }
+</main>

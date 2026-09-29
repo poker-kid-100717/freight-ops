@@ -1,0 +1,23 @@
+# Freight Ops on its own. It shares no services with ltl-planner or yard-ops and uses
+# different host ports, so all three compose stacks can run side by side.
+services:
+  freight-api:
+    build: ./api
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Alvys__Mode: ${ALVYS_MODE:-Demo}
+      Alvys__ClientId: ${ALVYS_CLIENT_ID:-}
+      Alvys__ClientSecret: ${ALVYS_CLIENT_SECRET:-}
+      Alvys__TokenUrl: ${ALVYS_TOKEN_URL:-https://auth.alvys.com/oauth/token}
+      Alvys__Audience: ${ALVYS_AUDIENCE:-https://api.alvys.com/public/}
+      Alvys__ApiBaseUrl: ${ALVYS_API_BASE_URL:-https://integrations.alvys.com/api/p/}
+      Alvys__LoadApiVersion: ${ALVYS_LOAD_API_VERSION:-v1}
+    ports: ["5101:8080"]
+
+  freight-web:
+    build:
+      context: ./web
+      args:
+        API_UPSTREAM: freight-api:8080
+    depends_on: [freight-api]
+    ports: ["4201:80"]
