@@ -1,10 +1,27 @@
-# Freight Ops on its own. It shares no services with ltl-planner or yard-ops and uses
-# different host ports, so all three compose stacks can run side by side.
+# Freight Ops on its own: PostgreSQL, the API and the Angular UI. It shares no services with
+# ltl-planner or yard-ops and uses different host ports, so all three stacks can run side by side.
 services:
+  freight-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: freight
+      POSTGRES_USER: freight
+      POSTGRES_PASSWORD: freight-local-only
+    volumes: [freight-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freight -d freight"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   freight-api:
     build: ./api
+    depends_on:
+      freight-db: { condition: service_healthy }
     environment:
       ASPNETCORE_URLS: http://+:8080
+      DATABASE_URL: ${DATABASE_URL:-postgres://freight:freight-local-only@freight-db:5432/freight}
+      Demo__ResetToken: ${DEMO_RESET_TOKEN:-}
       Alvys__Mode: ${ALVYS_MODE:-Demo}
       Alvys__ClientId: ${ALVYS_CLIENT_ID:-}
       Alvys__ClientSecret: ${ALVYS_CLIENT_SECRET:-}
@@ -21,3 +38,6 @@ services:
         API_UPSTREAM: freight-api:8080
     depends_on: [freight-api]
     ports: ["4201:80"]
+
+volumes:
+  freight-data:

@@ -19,16 +19,24 @@ public sealed class OpportunityScorer
             "Growth" => 5m,
             _ => 2m
         };
+        var overdue = Math.Min(customer.OverdueFollowUps * 5m, 10m);
 
-        var score = Math.Round(Math.Min(inactivity + volume + margin + stage, 100m), 1);
+        var score = Math.Round(Math.Min(inactivity + volume + margin + stage + overdue, 100m), 1);
         var why = customer.DaysSinceTouch >= 10
             ? $"No recorded touch in {customer.DaysSinceTouch} days; account also carries meaningful recurring volume."
             : "Healthy recent activity with enough recurring volume to justify proactive account work.";
+        if (customer.OverdueFollowUps > 0)
+        {
+            why += customer.OverdueFollowUps == 1
+                ? " One follow-up is overdue."
+                : $" {customer.OverdueFollowUps} follow-ups are overdue.";
+        }
         var action = customer.Stage switch
         {
             "At Risk" => "Schedule a service-recovery call and review the last three shipments.",
             "Reactivation" => "Re-open the account with a lane-specific capacity update.",
             "Expansion" => "Ask for adjacent lanes and forecasted volume.",
+            "Prospect" => "Book an intro call and qualify lanes, volume and equipment.",
             _ => "Review upcoming capacity and confirm the next shipment window."
         };
 

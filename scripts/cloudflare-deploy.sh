@@ -6,6 +6,9 @@
 # Optional:
 #   APP_HOST              custom hostname (for example freight.example.com). When empty the
 #                         Worker is served from its workers.dev URL only.
+#   DATABASE_URL          PostgreSQL URL (for example a Neon pooled URL with sslmode=require). When
+#                         empty the API runs on a throwaway demo database that resets on restart.
+#   DEMO_RESET_TOKEN      enables the daily demo-data reset (and POST /api/admin/reset-demo).
 #   ALVYS_CLIENT_ID / ALVYS_CLIENT_SECRET  enable live, read-only Alvys mode.
 #   VALIDATE_ONLY=true    build and run `wrangler deploy --dry-run` without contacting Cloudflare.
 set -euo pipefail
@@ -38,20 +41,26 @@ if (process.env.APP_HOST) {
 fs.writeFileSync(output, JSON.stringify(config, null, 2) + "\n");
 NODE
 
-# Freight Ops has no required secrets; Alvys credentials are uploaded only when both are set.
-SECRETS_ARGS=()
-if [ -n "${ALVYS_CLIENT_ID:-}" ] && [ -n "${ALVYS_CLIENT_SECRET:-}" ]; then
-  SECRETS_FILE="$(mktemp)"
-  trap 'rm -f "$SECRETS_FILE"' EXIT
-  chmod 600 "$SECRETS_FILE"
-  node > "$SECRETS_FILE" <<'NODE'
-process.stdout.write(JSON.stringify({
-  ALVYS_CLIENT_ID: process.env.ALVYS_CLIENT_ID,
-  ALVYS_CLIENT_SECRET: process.env.ALVYS_CLIENT_SECRET,
-}));
-NODE
-  SECRETS_ARGS=(--secrets-file "$SECRETS_FILE")
+# Only secrets that are set are uploaded; the app works without any of them.
+if [ -z "${DATABASE_URL:-}" ]; then
+  echo "::notice::DATABASE_URL is not set; Freight Ops will run on a demo database that resets when the container restarts."
 fi
+SECRETS_ARGS=()
+SECRETS_FILE="$(mktemp)"
+trap 'rm -f "$SECRETS_FILE"' EXIT
+chmod 600 "$SECRETS_FILE"
+node > "$SECRETS_FILE" <<'NODE'
+const secrets = {};
+for (const name of ["DATABASE_URL", "DEMO_RESET_TOKEN"]) {
+  if (process.env[name]) secrets[name] = process.env[name];
+}
+if (process.env.ALVYS_CLIENT_ID && process.env.ALVYS_CLIENT_SECRET) {
+  secrets.ALVYS_CLIENT_ID = process.env.ALVYS_CLIENT_ID;
+  secrets.ALVYS_CLIENT_SECRET = process.env.ALVYS_CLIENT_SECRET;
+}
+process.stdout.write(JSON.stringify(secrets));
+NODE
+if [ "$(cat "$SECRETS_FILE")" != "{}" ]; then SECRETS_ARGS=(--secrets-file "$SECRETS_FILE"); fi
 
 cd "$CF"
 if [ "$VALIDATE_ONLY" = "true" ]; then
@@ -89,7 +98,9 @@ wait_for() {
 echo "==> Smoke testing $APP_URL"
 wait_for "$APP_URL/health" "Healthy"
 wait_for "$APP_URL/" "<app-root"
+wait_for "$APP_URL/health/ready" "Ready"
 wait_for "$APP_URL/api/dashboard" "activeCustomers"
+wait_for "$APP_URL/accounts" "<app-root"
 
 echo "Deployed: $APP_URL"
 if [ -n "${GITHUB_OUTPUT:-}" ]; then echo "url=$APP_URL" >> "$GITHUB_OUTPUT"; fi

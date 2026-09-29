@@ -1,15 +1,26 @@
+using System.Threading.RateLimiting;
 using Microsoft.Extensions.Http.Resilience;
+using Portfolio.Freight.Api.Data;
+using Portfolio.Freight.Api.Endpoints;
 using Portfolio.Freight.Api.Integrations.Alvys;
 using Portfolio.Freight.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 64 * 1024);
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<DatabaseExceptionHandler>();
 builder.Services.AddMemoryCache();
-builder.Services.Configure<AlvysOptions>(builder.Configuration.GetSection(AlvysOptions.Section));
-builder.Services.AddSingleton<FreightStore>();
+builder.Services.AddSingleton(TimeProvider.System);
+
+builder.Services.AddFreightDatabase(builder.Configuration);
+builder.Services.AddSingleton<DemoSeeder>();
+builder.Services.AddSingleton<DatabaseGate>();
+builder.Services.AddScoped<CustomerInsights>();
 builder.Services.AddSingleton<OpportunityScorer>();
+
+builder.Services.Configure<AlvysOptions>(builder.Configuration.GetSection(AlvysOptions.Section));
 builder.Services.AddSingleton<AlvysTokenProvider>();
 builder.Services.AddSingleton<IExternalLoadReader, AlvysLoadReader>();
 
@@ -27,56 +38,57 @@ builder.Services.AddHttpClient(AlvysLoadReader.ApiClient)
         options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(30);
     });
 
-var app = builder.Build();
-app.UseExceptionHandler();
-if (app.Environment.IsDevelopment()) app.MapOpenApi();
-
-app.MapGet("/health", () => Results.Ok(new { status = "Healthy", service = "freight-ops" }));
-
-app.MapGet("/api/dashboard", (FreightStore store, OpportunityScorer scorer) =>
+// This is an anonymous public demo: limit writes per client. Cloudflare supplies the caller's IP.
+var writesPerMinute = builder.Configuration.GetValue("RateLimiting:WritesPerMinute", 30);
+builder.Services.AddRateLimiter(options =>
 {
-    var customers = store.Customers;
-    var opportunities = customers
-        .Select(scorer.Score)
-        .OrderByDescending(x => x.PriorityScore)
-        .Take(5)
-        .ToArray();
-
-    return Results.Ok(new
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
     {
-        activeCustomers = customers.Count,
-        openOpportunities = opportunities.Length,
-        monthlyLoads = customers.Sum(x => x.MonthlyLoads),
-        grossMargin = customers.Sum(x => x.MonthlyGrossMargin),
-        followUpsDue = customers.Count(x => x.DaysSinceTouch >= 7),
-        topOpportunities = opportunities
+        if (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
+            return RateLimitPartition.GetNoLimiter("reads");
+        var client = context.Request.Headers["CF-Connecting-IP"].FirstOrDefault()
+                     ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(client, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = writesPerMinute,
+            Window = TimeSpan.FromMinutes(1)
+        });
     });
 });
 
-app.MapGet("/api/customers", (FreightStore store, OpportunityScorer scorer) =>
-    Results.Ok(store.Customers.Select(c => new
-    {
-        c.Id,
-        c.Name,
-        c.PrimaryLane,
-        c.MonthlyLoads,
-        c.MonthlyRevenue,
-        c.MonthlyGrossMargin,
-        c.DaysSinceTouch,
-        c.Stage,
-        score = scorer.Score(c).PriorityScore
-    }).OrderByDescending(x => x.score)));
+var app = builder.Build();
+app.UseExceptionHandler();
+app.UseRateLimiter();
+if (app.Environment.IsDevelopment()) app.MapOpenApi();
 
-app.MapGet("/api/opportunities", (FreightStore store, OpportunityScorer scorer) =>
-    Results.Ok(store.Customers.Select(scorer.Score).OrderByDescending(x => x.PriorityScore)));
+await Database.InitializeAsync(app.Services);
 
-app.MapGet("/api/loads", async (IExternalLoadReader loads, CancellationToken ct) =>
+app.MapGet("/health", () => Results.Ok(new { status = "Healthy", service = "freight-ops" }));
+app.MapGet("/health/ready", async (DatabaseGate gate, DatabaseStatus database, CancellationToken ct) =>
+{
+    var ready = await gate.EnsureReadyAsync(ct);
+    var body = new { status = ready ? "Ready" : "Degraded", database = new { database.Mode, database.Ready, database.Error } };
+    return ready ? Results.Ok(body) : Results.Json(body, statusCode: StatusCodes.Status503ServiceUnavailable);
+});
+
+var api = app.MapGroup("/api");
+api.MapPlatformEndpoints();
+
+var data = api.MapGroup("").AddEndpointFilter(DatabaseGate.Filter);
+data.MapAccountEndpoints();
+data.MapSalesEndpoints();
+data.MapInsightEndpoints();
+
+api.MapGet("/loads", async (IExternalLoadReader loads, CancellationToken ct) =>
 {
     var result = await loads.GetVisibleLoadsAsync(ct);
     return Results.Ok(result);
 });
 
-app.MapGet("/api/integrations/alvys/status", (IExternalLoadReader loads) =>
+api.MapGet("/integrations/alvys/status", (IExternalLoadReader loads) =>
     Results.Ok(loads.Status));
 
 app.Run();
+
+public partial class Program;

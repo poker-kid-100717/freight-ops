@@ -8,7 +8,8 @@ public sealed record CustomerAccount(
     decimal MonthlyRevenue,
     decimal MonthlyGrossMargin,
     int DaysSinceTouch,
-    string Stage);
+    string Stage,
+    int OverdueFollowUps = 0);
 
 public sealed record Opportunity(
     Guid CustomerId,

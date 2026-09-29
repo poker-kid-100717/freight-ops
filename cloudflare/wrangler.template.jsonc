@@ -26,5 +26,6 @@
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["FreightApi"] }
   ],
+  "triggers": { "crons": ["17 8 * * *"] },
   "observability": { "enabled": true }
 }
