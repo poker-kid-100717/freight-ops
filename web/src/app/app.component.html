@@ -1,71 +1,108 @@
-<main class="page">
-  <header class="topbar shell">
-    <div>
-      <span class="eyebrow">LOGISTICS PORTFOLIO / APP 01</span>
-      <h1>Freight Ops</h1>
-      <p>Customer intelligence and operating visibility built around explicit, auditable priorities.</p>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="app" [class.collapsed]="collapsed()" [class.nav-open]="mobileOpen()">
+  <nav class="sidebar" aria-label="Main">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">FO</span>
+      <span class="brand-name">Freight Ops</span>
+      <button type="button" class="icon-button close-nav" (click)="mobileOpen.set(false)" aria-label="Close menu"><app-icon name="close" /></button>
     </div>
-    <span class="pill">.NET 10 + Angular 22</span>
-  </header>
 
-  @if (dashboard(); as d) {
-    <section class="stats shell" aria-label="Operational metrics">
-      <article><span>Active customers</span><strong>{{ d.activeCustomers }}</strong></article>
-      <article><span>Monthly loads</span><strong>{{ d.monthlyLoads }}</strong></article>
-      <article><span>Monthly gross margin</span><strong>{{ money(d.grossMargin) }}</strong></article>
-      <article><span>Follow-ups due</span><strong>{{ d.followUpsDue }}</strong></article>
-    </section>
-
-    <section class="grid shell">
-      <article class="panel span-2">
-        <div class="panel-head">
-          <div><span class="eyebrow">ACCOUNT WORK QUEUE</span><h2>Top opportunities</h2></div>
-          <span class="subtle">Explainable score, not AI theater</span>
-        </div>
-        <div class="opportunities">
-          @for (item of d.topOpportunities; track item.customerId) {
-            <div class="opportunity">
-              <div class="score">{{ item.priorityScore }}</div>
-              <div class="opportunity-copy">
-                <strong>{{ item.customerName }}</strong>
-                <span>{{ item.primaryLane }}</span>
-                <p>{{ item.whyNow }}</p>
-                <small>{{ item.recommendedAction }}</small>
-              </div>
-            </div>
+    @for (group of groups; track group.label) {
+      <div class="nav-group">
+        <h2 class="nav-heading">{{ group.label }}</h2>
+        <ul>
+          @for (item of group.items; track item.path) {
+            <li>
+              <a [routerLink]="item.path" routerLinkActive="active" ariaCurrentWhenActive="page" [attr.title]="collapsed() ? item.label : null"
+                 (click)="mobileOpen.set(false)">
+                <app-icon [name]="item.icon" /><span class="nav-label">{{ item.label }}</span>
+              </a>
+            </li>
           }
-        </div>
-      </article>
-
-      <article class="panel integration">
-        <span class="eyebrow">THIRD-PARTY INTEGRATION</span>
-        <h2>{{ externalLabel() }}</h2>
-        <p>The browser calls this portfolio API only. OAuth credentials and vendor bearer tokens never leave the server.</p>
-        <button type="button" (click)="refreshLoads()">Refresh loads</button>
-        @if (loads()?.degraded) { <div class="warning">{{ loads()?.degradedReason }}</div> }
-      </article>
-    </section>
-  }
-
-  @if (loads(); as result) {
-    <section class="shell panel loads-panel">
-      <div class="panel-head">
-        <div><span class="eyebrow">LOAD VISIBILITY</span><h2>Current freight</h2></div>
-        <span class="subtle">{{ result.provider }}</span>
+        </ul>
       </div>
-      <div class="load-grid">
-        @for (load of result.loads; track load.loadNumber) {
-          <article class="load-card">
-            <div class="load-title"><strong>{{ load.loadNumber }}</strong><span>{{ load.status }}</span></div>
-            <h3>{{ load.customerName }}</h3>
-            <dl>
-              <div><dt>Pickup</dt><dd>{{ date(load.scheduledPickupAt) }}</dd></div>
-              <div><dt>Delivery</dt><dd>{{ date(load.scheduledDeliveryAt) }}</dd></div>
-              <div><dt>Equipment</dt><dd>{{ load.requiredEquipment.join(', ') || 'Not supplied' }}</dd></div>
-            </dl>
-          </article>
+    }
+
+    <div class="nav-footer">
+      <a routerLink="/settings" routerLinkActive="active" ariaCurrentWhenActive="page" [attr.title]="collapsed() ? 'Settings' : null"
+         (click)="mobileOpen.set(false)">
+        <app-icon name="settings" /><span class="nav-label">Settings</span>
+      </a>
+      <button type="button" class="collapse-toggle" (click)="toggleCollapsed()" [attr.aria-label]="collapsed() ? 'Expand menu' : 'Collapse menu'"
+              [attr.aria-expanded]="!collapsed()">
+        <app-icon [name]="collapsed() ? 'expand' : 'collapse'" /><span class="nav-label">Collapse</span>
+      </button>
+    </div>
+  </nav>
+  <div class="scrim" (click)="mobileOpen.set(false)" aria-hidden="true"></div>
+
+  <div class="workspace">
+    <header class="topbar">
+      <button type="button" class="icon-button open-nav" (click)="mobileOpen.set(true)" aria-label="Open menu"><app-icon name="menu" /></button>
+
+      <div class="search" role="search">
+        <app-icon name="search" />
+        <label class="sr-only" for="global-search">Search accounts, contacts, leads, quotes and carriers</label>
+        <input id="global-search" type="search" autocomplete="off" placeholder="Search  ( / )" [value]="query()"
+               (input)="onSearch($any($event.target).value)" (keydown)="onSearchKey($event)" (focus)="searchOpen.set(hits().length > 0)"
+               role="combobox" aria-autocomplete="list" aria-controls="search-results" [attr.aria-expanded]="searchOpen() && hits().length > 0"
+               [attr.aria-activedescendant]="activeHit() >= 0 ? 'hit-' + activeHit() : null" />
+        @if (searchOpen() && query().trim().length >= 2) {
+          <ul class="search-results" id="search-results" role="listbox">
+            @for (hit of hits(); track hit.type + hit.id; let i = $index) {
+              <li role="option" [id]="'hit-' + i" [attr.aria-selected]="i === activeHit()" [class.active]="i === activeHit()"
+                  (mousedown)="$event.preventDefault(); go(hit)">
+                <span class="hit-type">{{ hit.type }}</span>
+                <span class="hit-text"><strong>{{ hit.title }}</strong><small>{{ hit.subtitle }}</small></span>
+              </li>
+            } @empty {
+              <li class="empty-hit" role="option" aria-disabled="true">No matches for “{{ query() }}”</li>
+            }
+          </ul>
         }
       </div>
-    </section>
-  }
-</main>
+
+      <div class="new-menu">
+        <button type="button" class="primary" (click)="newOpen.set(!newOpen())" aria-haspopup="menu" [attr.aria-expanded]="newOpen()">
+          <app-icon name="plus" /><span class="new-label">New</span>
+        </button>
+        @if (newOpen()) {
+          <ul class="menu" role="menu">
+            <li role="none"><button type="button" role="menuitem" (click)="create('lead')">Lead</button></li>
+            <li role="none"><button type="button" role="menuitem" (click)="create('account')">Account</button></li>
+            <li role="none"><button type="button" role="menuitem" (click)="create('contact')">Contact</button></li>
+            <li role="none"><button type="button" role="menuitem" (click)="create('quote')">Quote</button></li>
+            <li role="none"><button type="button" role="menuitem" (click)="create('follow-up')">Follow-up</button></li>
+            <li role="none"><button type="button" role="menuitem" (click)="create('activity')">Activity</button></li>
+            <li role="none"><button type="button" role="menuitem" (click)="create('lane')">Lane</button></li>
+            <li role="none"><button type="button" role="menuitem" (click)="create('carrier')">Carrier</button></li>
+          </ul>
+        }
+      </div>
+
+      <label class="viewing-as">
+        <span class="avatar" aria-hidden="true">{{ initials() }}</span>
+        <span class="sr-only">Viewing as</span>
+        <select [value]="session.repId() ?? ''" (change)="setRep($any($event.target).value)">
+          <option value="">Whole team</option>
+          @for (rep of session.meta()?.reps ?? []; track rep.id) {
+            <option [value]="rep.id" [selected]="rep.id === session.repId()">{{ rep.name }}</option>
+          }
+        </select>
+      </label>
+    </header>
+
+    <div class="demo-note" role="note">
+      Public demo with fictional data.
+      @if (session.meta(); as meta) {
+        @if (meta.storage.persistent) { Changes are saved and reset daily. } @else { Changes reset when the server restarts. }
+      }
+    </div>
+    @if (session.metaError()) { <div class="alert page-alert" role="alert">{{ session.metaError() }}</div> }
+
+    <main id="main" tabindex="-1">
+      <router-outlet />
+    </main>
+  </div>
+</div>
+<app-form-drawer />

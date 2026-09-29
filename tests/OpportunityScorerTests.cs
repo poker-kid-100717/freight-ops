@@ -31,3 +31,18 @@ public sealed class OpportunityScorerTests
         Assert.Equal(100m, _scorer.Score(extreme).PriorityScore);
     }
 }
+
+public sealed class OverdueFollowUpScoringTests
+{
+    [Fact]
+    public void OverdueFollowUpsRaiseTheScoreAndAreExplained()
+    {
+        var scorer = new OpportunityScorer();
+        var baseline = new CustomerAccount(Guid.NewGuid(), "Example Co", "ABQ → PHX", 10, 40000m, 6000m, 3, "Active");
+
+        var withOverdue = scorer.Score(baseline with { OverdueFollowUps = 2 });
+
+        Assert.Equal(scorer.Score(baseline).PriorityScore + 10m, withOverdue.PriorityScore);
+        Assert.Contains("2 follow-ups are overdue", withOverdue.WhyNow);
+    }
+}

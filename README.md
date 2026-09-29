@@ -6,13 +6,29 @@ A clean-room portfolio freight CRM: customer accounts, an explainable opportunit
 
 It is the standalone version of Freight Ops from [logistics-portfolio-suite](https://github.com/poker-kid-100717/logistics-portfolio-suite). It is a companion to [ltl-planner](https://github.com/poker-kid-100717/ltl-planner) and [yard-ops](https://github.com/poker-kid-100717/yard-ops), covering the customer side of the same freight workflow, and runs entirely on its own.
 
+## What it does
+
+A working CRM, not a mock-up. Everything below reads and writes a real database.
+
+| Menu | Pages |
+| --- | --- |
+| **Home** | Dashboard (book-of-business numbers and the accounts to work next) · My Day (overdue, due-today and upcoming follow-ups, open quotes, recent activity for the selected rep) |
+| **Sales** | Leads (qualify, then convert into an account and primary contact) · Accounts (search, filter, sort by priority score) and account detail (contacts, activity timeline, follow-ups, quotes, lanes) · Contacts · Pipeline (quote board) · Quotes |
+| **Operations** | Lanes (target rates per account; quote a lane in one click) · Loads (read-only TMS load visibility) · Carriers (MC numbers, equipment, rating, status) |
+| **Insights** | Reports (revenue by customer, quotes by month, activity by rep, accounts by stage; each exports to CSV) · Activity Log |
+
+Settings sits at the bottom of the menu. The top bar has global search (`/`), a **+ New** menu for every record type, and a "viewing as" rep selector.
+
+Rules the API enforces: quotes move Draft → Sent → Won/Lost only; a prospect's first won quote makes it Active; only qualified leads convert, in one transaction; logging activity resets "days since last touch"; one primary contact per account; MC numbers and account names are unique.
+
 ## Demonstrates
 
-- explainable account/opportunity scoring with a reason and next action for every account
-- Angular 22 operational dashboard
-- .NET 10 minimal API
+- .NET 10 minimal API with EF Core 10 on PostgreSQL (migrations applied at startup), validation as ProblemDetails, and 409s for rule violations
+- explainable opportunity scoring computed from live data, with a reason and next step for every account
+- Angular 22 routed app: lazy-loaded pages, signals, one accessible drawer for every create/edit form, light and dark themes, phone-width layout
+- a public-demo posture: per-client write rate limits, request size limits, and a daily data reset from a Cloudflare cron trigger
 - optional read-only Alvys Loads Search through an OAuth 2.0 client-credentials adapter
-- a third-party adapter boundary that degrades to synthetic data
+- integration tests against both SQLite and PostgreSQL in CI
 - Cloudflare Workers + Containers hosting deployed from GitHub Actions
 
 The scoring formula is intentionally portfolio-only and is not copied from a professional system. See [docs/architecture.md](docs/architecture.md).
@@ -24,13 +40,15 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Compose starts PostgreSQL too; the API applies migrations and seeds fictional demo data on first start.
+
 - UI: http://localhost:4201
 - API: http://localhost:5101 (health at `/health`)
 
 Without Docker:
 
 ```bash
-ASPNETCORE_URLS=http://localhost:5101 dotnet run --project api
+ASPNETCORE_URLS=http://localhost:5101 dotnet run --project api   # no DATABASE_URL: throwaway SQLite demo store
 cd web && npm install && npm start   # UI on http://localhost:4201; /api proxies to :5101
 ```
 
@@ -39,8 +57,11 @@ Demo mode is the default and needs no credentials. To enable live, read-only Alv
 ## Tests
 
 ```bash
-dotnet test tests/Portfolio.Freight.Api.Tests.csproj
+dotnet test tests/Portfolio.Freight.Api.Tests.csproj                                   # SQLite
+TEST_DATABASE_URL=postgres://user:pass@localhost:5432/freight_test dotnet test tests/Portfolio.Freight.Api.Tests.csproj  # PostgreSQL
 ```
+
+The integration tests start the real API and cover every workflow and rule above.
 
 ## Deploy to Cloudflare
 
@@ -52,6 +73,8 @@ Repository **secrets**:
 | --- | --- | --- |
 | `CLOUDFLARE_API_TOKEN` | yes | Wrangler deploys |
 | `CLOUDFLARE_ACCOUNT_ID` | yes | Wrangler deploys |
+| `DATABASE_URL` | recommended | PostgreSQL URL, for example a Neon pooled URL ending in `?sslmode=require`. Without it the app runs on a demo database that resets whenever the container restarts. |
+| `DEMO_RESET_TOKEN` | recommended | Any random string. Enables the daily reset of the public demo data (08:17 UTC). |
 | `ALVYS_CLIENT_ID` / `ALVYS_CLIENT_SECRET` | no | Live, read-only Alvys mode |
 
 Repository **variable** (optional):
@@ -65,8 +88,8 @@ Until the Cloudflare secrets exist the deploy job skips cleanly. `scripts/cloudf
 ## Repository structure
 
 ```text
-api/          .NET 10 API (accounts, opportunity scoring, Alvys adapter)
-tests/        xUnit tests for the opportunity scorer
+api/          .NET 10 API: Data/ (EF Core model, migrations, demo seed), Endpoints/, scoring, Alvys adapter
+tests/        xUnit unit and integration tests
 web/          Angular 22 UI
 cloudflare/   Worker + Container definition for Cloudflare hosting
 scripts/      deploy and publication-safety scripts
