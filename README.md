@@ -23,7 +23,7 @@ Rules the API enforces: quotes move Draft → Sent → Won/Lost only; a prospect
 
 ## Demonstrates
 
-- .NET 10 minimal API with EF Core 10 on PostgreSQL (migrations applied at startup), validation as ProblemDetails, and 409s for rule violations
+- .NET 10 minimal API with EF Core 10 on PostgreSQL (migrations applied by the deploy pipeline as the owner; the running app connects as a least-privilege role), validation as ProblemDetails, and 409s for rule violations
 - explainable opportunity scoring computed from live data, with a reason and next step for every account
 - Angular 22 routed app: lazy-loaded pages, signals, one accessible drawer for every create/edit form, light and dark themes, phone-width layout
 - a public-demo posture: per-client write rate limits, request size limits, and a daily data reset from a Cloudflare cron trigger
@@ -73,9 +73,23 @@ Repository **secrets**:
 | --- | --- | --- |
 | `CLOUDFLARE_API_TOKEN` | yes | Wrangler deploys |
 | `CLOUDFLARE_ACCOUNT_ID` | yes | Wrangler deploys |
-| `DATABASE_URL` | recommended | PostgreSQL URL, for example a Neon pooled URL ending in `?sslmode=require`. Without it the app runs on a demo database that resets whenever the container restarts. |
-| `DEMO_RESET_TOKEN` | recommended | Any random string. Enables the daily reset of the public demo data (08:17 UTC). |
+| `DATABASE_URL` | recommended | PostgreSQL URL the running app uses: a Neon **pooled** URL ending in `?sslmode=require`, for a role with data rights only (see below). Without it the app runs on a demo database that resets whenever the container restarts. |
+| `DATABASE_URL_UNPOOLED` | recommended | The owner's **direct** (non-pooled) URL. The deploy applies migrations with it before the new container starts. Without it the app migrates itself on startup (and then needs DDL rights). |
+| `DEMO_RESET_TOKEN` | no | Token for `POST /api/admin/reset-demo`. The demo data resets nightly at 08:17 UTC; a per-deploy token is generated when unset. |
 | `ALVYS_CLIENT_ID` / `ALVYS_CLIENT_SECRET` | no | Live, read-only Alvys mode |
+
+Database roles (Neon or any PostgreSQL): the owner role in `DATABASE_URL_UNPOOLED` owns the schema; the app role in `DATABASE_URL` only reads and writes rows:
+
+```sql
+CREATE ROLE freight_app LOGIN PASSWORD '...';
+GRANT CONNECT ON DATABASE freight TO freight_app;
+GRANT USAGE ON SCHEMA public TO freight_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO freight_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE freight_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO freight_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE freight_owner IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO freight_app;
+```
+
+Cloudflare cron triggers handle the nightly reset and a keep-warm ping to `/health/ready` every five minutes during weekday business hours (14:00-23:55 UTC), so the first visitor does not wait for a cold container and a suspended database.
 
 Repository **variable** (optional):
 
