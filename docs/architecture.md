@@ -15,7 +15,7 @@ It is a companion to [ltl-planner](https://github.com/poker-kid-100717/ltl-plann
 
 ## Data model
 
-Reps, customers (accounts), contacts, activities, follow-ups, quotes, leads, lanes and carriers, in one EF Core context (`api/Data`). Migrations target PostgreSQL and are applied at startup. With no `DATABASE_URL`, the API creates a throwaway SQLite database from the same model so the demo still runs; decimals are stored as REAL there because SQLite cannot sort or sum them.
+Reps, customers (accounts), contacts, activities, follow-ups, quotes, leads, lanes and carriers, in one EF Core context (`api/Data`). Migrations target PostgreSQL and are applied by the deploy pipeline (`dotnet Portfolio.Freight.Api.dll migrate`, run as the schema owner over a direct connection) before the new container starts; the running app connects through the pooler as a role that can only read and write rows, and reports not-ready if the schema is behind its build. Local runs and Compose still migrate on startup (`Database:MigrateOnStartup`). With no `DATABASE_URL`, the API creates a throwaway SQLite database from the same model so the demo still runs; decimals are stored as REAL there because SQLite cannot sort or sum them.
 
 Seed data is fictional, dated relative to "now", and loaded only into an empty database. Seeded records have stable ids, so links survive the daily reset.
 

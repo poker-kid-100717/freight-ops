@@ -90,4 +90,5 @@ jobs:
           VALIDATE_ONLY: "true"
           APP_HOST: freight.example.com
           DATABASE_URL: postgres://dry-run:dry-run@example.com/freight?sslmode=require
+          DATABASE_URL_UNPOOLED: postgres://dry-run-owner:dry-run@example.com/freight?sslmode=require
           DEMO_RESET_TOKEN: dry-run-token

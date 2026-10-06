@@ -4,6 +4,7 @@ export interface Env {
   ASSETS: Fetcher;
   API: DurableObjectNamespace<FreightApi>;
   DATABASE_URL?: string;
+  MIGRATE_ON_STARTUP?: string;
   DEMO_RESET_TOKEN?: string;
   ALVYS_CLIENT_ID?: string;
   ALVYS_CLIENT_SECRET?: string;
@@ -20,6 +21,8 @@ export class FreightApi extends Container<Env> {
       ASPNETCORE_ENVIRONMENT: "Production",
       // Without DATABASE_URL the API runs on a throwaway demo database.
       ...(env.DATABASE_URL ? { ConnectionStrings__Default: env.DATABASE_URL } : {}),
+      // "false" when the deploy pipeline applies migrations as the owner (DATABASE_URL_UNPOOLED).
+      Database__MigrateOnStartup: env.MIGRATE_ON_STARTUP ?? "true",
       ...(env.DEMO_RESET_TOKEN ? { Demo__ResetToken: env.DEMO_RESET_TOKEN } : {}),
       Alvys__Mode: env.ALVYS_CLIENT_ID && env.ALVYS_CLIENT_SECRET ? "Live" : "Demo",
       ...(env.ALVYS_CLIENT_ID ? { Alvys__ClientId: env.ALVYS_CLIENT_ID } : {}),
@@ -39,18 +42,34 @@ export default {
     return env.ASSETS.fetch(request);
   },
 
-  // Daily reset of the public demo data (see triggers.crons in wrangler.template.jsonc).
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    if (!env.DEMO_RESET_TOKEN) return;
+  // Crons (wrangler.template.jsonc): the nightly demo reset, and a business-hours keep-warm ping so the
+  // first visitor does not wait on a cold container and a suspended database.
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    const request = scheduledRequest(controller.cron, env);
+    if (!request) return;
     ctx.waitUntil(
-      api(env)
-        .fetch(new Request("http://api/api/admin/reset-demo", {
-          method: "POST",
-          headers: { "X-Demo-Reset-Token": env.DEMO_RESET_TOKEN },
-        }))
-        .then(response => {
-          if (!response.ok) console.error(`Demo reset failed: ${response.status}`);
-        }),
+      api(env).fetch(request).then(response => {
+        if (!response.ok) console.error(`Cron "${controller.cron}" ${new URL(request.url).pathname} failed: ${response.status}`);
+      }),
     );
   },
 } satisfies ExportedHandler<Env>;
+
+const RESET_CRON = "17 8 * * *";
+// Every 5 minutes, 14:00-23:55 UTC Monday-Friday (Cloudflare numbers weekdays from 1 = Sunday, so use names):
+// 8am-6pm Mountain daylight time (7am-5pm standard).
+const WARM_CRON = "*/5 14-23 * * MON-FRI";
+
+function scheduledRequest(cron: string, env: Env): Request | null {
+  switch (cron) {
+    case RESET_CRON:
+      return env.DEMO_RESET_TOKEN
+        ? new Request("http://api/api/admin/reset-demo", { method: "POST", headers: { "X-Demo-Reset-Token": env.DEMO_RESET_TOKEN } })
+        : null;
+    case WARM_CRON:
+      // /health/ready goes through the database gate, so it wakes Neon as well as the container.
+      return new Request("http://api/health/ready");
+    default:
+      return null;
+  }
+}
